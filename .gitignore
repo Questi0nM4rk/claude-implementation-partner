@@ -1,0 +1,71 @@
+# Environment and secrets
+.env
+.env.local
+secrets/
+*.key
+*.pem
+*.crt
+
+# Data directories
+data/
+*.db
+*.sqlite
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+.venv-test/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Docker
+*.log
+docker-compose.override.yml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Test coverage
+htmlcov/
+.coverage
+.pytest_cache/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup
+
+# Claude specific
+~/.claude/
+claude-logs/
+.claude-backup-*/
+
+# MCP data
+.mcp/
+*.pid
+
+# OS files
+Thumbs.db
