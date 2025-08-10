@@ -1,243 +1,198 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Colors for output
+# Claude Implementation Partner - Simple Installer
+# Only this script in main directory, everything else organized
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CLAUDE_HOME="$HOME/.claude"
+MCP_HOME="$HOME/.mcp"
+
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-# Script directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLAUDE_HOME="$HOME/.claude"
-
+# Color functions (inline for simplicity)
 log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
-log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 
-show_header() {
-    echo -e "${BLUE}"
-    echo "╔══════════════════════════════════════════════════════════════╗"
-    echo "║              Claude Implementation Partner                    ║"
-    echo "║                  Installation Script                         ║"
-    echo "╚══════════════════════════════════════════════════════════════╝"
-    echo -e "${NC}"
-    echo
+show_banner() {
+    cat << 'EOF'
+╔════════════════════════════════════════════════════════════════╗
+║          🧠 CLAUDE IMPLEMENTATION PARTNER 🧠               ║
+║                                                              ║
+║         Argumentative Intelligence for Development           ║
+╚════════════════════════════════════════════════════════════════╝
+EOF
 }
 
-check_requirements() {
-    log_info "🔍 Checking requirements..."
+show_help() {
+    echo "Usage: ./install.sh [COMMAND]"
+    echo ""
+    echo "Commands:"
+    echo "  install   - Install Claude Implementation Partner (default)"
+    echo "  start     - Start Docker services"
+    echo "  stop      - Stop Docker services"
+    echo "  status    - Check service status"
+    echo "  clean     - Remove all containers and data"
+    echo "  uninstall - Complete uninstall"
+    echo "  help      - Show this help"
+    echo ""
+    echo "Examples:"
+    echo "  ./install.sh              # Install everything"
+    echo "  ./install.sh start        # Start services"
+    echo "  ./install.sh status       # Check health"
+    echo "  ./install.sh clean        # Clean up"
+}
+
+# Installation functions
+do_install() {
+    show_banner
     
-    local missing_deps=()
+    log_info "Starting installation..."
     
-    # Check Docker
+    # Check prerequisites
     if ! command -v docker &> /dev/null; then
-        missing_deps+=("docker")
-    fi
-    
-    # Check Docker Compose
-    if ! command -v docker-compose &> /dev/null; then
-        missing_deps+=("docker-compose")
-    fi
-    
-    # Check Git
-    if ! command -v git &> /dev/null; then
-        missing_deps+=("git")
-    fi
-    
-    # Check curl
-    if ! command -v curl &> /dev/null; then
-        missing_deps+=("curl")
-    fi
-    
-    if [ ${#missing_deps[@]} -gt 0 ]; then
-        log_error "Missing required dependencies: ${missing_deps[*]}"
-        log_error "Please install them first"
+        log_error "Docker is required but not installed"
         exit 1
     fi
     
-    # Check Docker daemon
-    if ! docker info &> /dev/null; then
-        log_error "Docker daemon is not running"
-        exit 1
+    # Backup existing config
+    if [ -d "$CLAUDE_HOME" ]; then
+        BACKUP_DIR="$HOME/.claude-backup-$(date +%Y%m%d-%H%M%S)"
+        log_info "Backing up existing configuration to $BACKUP_DIR"
+        cp -r "$CLAUDE_HOME" "$BACKUP_DIR"
     fi
     
-    log_success "All requirements satisfied"
-}
-
-setup_claude_config() {
-    log_info "📁 Setting up Claude configuration..."
-    
-    # Create Claude home directory
-    mkdir -p "$CLAUDE_HOME"
+    # Create directories
+    log_info "Creating directories..."
+    mkdir -p "$CLAUDE_HOME"/{hooks,commands,patterns,scripts}
+    mkdir -p "$MCP_HOME"/docker
     
     # Copy configuration files
-    cp "$SCRIPT_DIR/core/config/claude/CLAUDE.md" "$CLAUDE_HOME/"
-    cp "$SCRIPT_DIR/core/config/claude/settings.json" "$CLAUDE_HOME/"
-    cp "$SCRIPT_DIR/core/config/claude/mcp.json" "$CLAUDE_HOME/"
+    log_info "Installing configuration..."
+    cp -r "$SCRIPT_DIR/config/claude/"* "$CLAUDE_HOME/" 2>/dev/null || true
     
-    log_success "Claude configuration installed"
-}
-
-setup_environment() {
-    log_info "🔐 Setting up environment..."
+    # Make all scripts executable
+    chmod +x "$SCRIPT_DIR/install.sh" 2>/dev/null || true
+    chmod +x "$SCRIPT_DIR/scripts/"*.sh 2>/dev/null || true
     
-    # Create .env file if it doesn't exist
-    if [ ! -f "$SCRIPT_DIR/.env" ]; then
-        cat > "$SCRIPT_DIR/.env" << 'EOF'
-# API Keys (optional - set these for full functionality)
-PERPLEXITY_API_KEY=
-ATLASSIAN_DOMAIN=
-ATLASSIAN_EMAIL=
-ATLASSIAN_API_TOKEN=
-GITLAB_TOKEN=
-GITLAB_URL=
-
-# Memory Services (automatically configured)
-QDRANT_HOST=localhost
-QDRANT_PORT=6333
-OLLAMA_HOST=http://localhost:11434
-EMBEDDING_MODEL=mxbai-embed-large
-MEM0_PORT=8765
-EOF
-        log_info "Created .env file - you can configure API keys later"
+    # Install Docker services with fixed healthchecks
+    log_info "Installing Docker services..."
+    if [ -f "$SCRIPT_DIR/scripts/docker-setup.sh" ]; then
+        "$SCRIPT_DIR/scripts/docker-setup.sh"
     else
-        log_info ".env file already exists"
-    fi
-}
-
-start_memory_services() {
-    log_info "🐳 Starting memory services (Docker)..."
-    
-    cd "$SCRIPT_DIR/infrastructure/docker"
-    
-    # Pull images first
-    log_info "Pulling Docker images..."
-    docker-compose pull
-    
-    # Build custom images
-    log_info "Building Mem0 MCP server..."
-    docker-compose build mem0-server
-    
-    # Start services
-    log_info "Starting services..."
-    docker-compose up -d
-    
-    # Wait for services to be ready
-    log_info "Waiting for services to be ready..."
-    local retries=30
-    while [ $retries -gt 0 ]; do
-        if curl -s http://localhost:6333/health > /dev/null 2>&1 && \
-           curl -s http://localhost:11434/api/version > /dev/null 2>&1; then
-            break
-        fi
-        retries=$((retries - 1))
-        sleep 2
-    done
-    
-    if [ $retries -eq 0 ]; then
-        log_error "Services failed to start properly"
-        docker-compose logs
+        log_error "Docker setup script not found"
         exit 1
     fi
     
-    # Wait for Mem0 server
-    log_info "Waiting for Mem0 server..."
-    retries=30
-    while [ $retries -gt 0 ]; do
-        if curl -s http://localhost:8765/health > /dev/null 2>&1; then
-            break
+    log_success "Installation complete!"
+    echo ""
+    echo "Next step:"
+    echo "  Run: ${GREEN}./install.sh start${NC}"
+    echo ""
+    echo "This will:"
+    echo "  • Start all Docker services"
+    echo "  • Download the embedding model automatically"
+    echo "  • Make everything ready to use"
+    echo ""
+    echo "No manual steps needed - everything is automatic!"
+}
+
+# Service management
+do_start() {
+    log_info "Starting services..."
+    if [ -f "$SCRIPT_DIR/scripts/service-manager.sh" ]; then
+        "$SCRIPT_DIR/scripts/service-manager.sh" start
+    else
+        log_error "Service manager script not found"
+        exit 1
+    fi
+}
+
+do_stop() {
+    log_info "Stopping services..."
+    if [ -f "$SCRIPT_DIR/scripts/service-manager.sh" ]; then
+        "$SCRIPT_DIR/scripts/service-manager.sh" stop
+    else
+        log_error "Service manager script not found"
+        exit 1
+    fi
+}
+
+do_status() {
+    if [ -f "$SCRIPT_DIR/scripts/service-manager.sh" ]; then
+        "$SCRIPT_DIR/scripts/service-manager.sh" status
+    else
+        log_error "Service manager script not found"
+        exit 1
+    fi
+}
+
+do_clean() {
+    log_warn "This will remove all containers and data!"
+    read -p "Are you sure? (yes/no): " -r
+    if [[ $REPLY =~ ^[Yy]es$ ]]; then
+        if [ -f "$SCRIPT_DIR/scripts/cleanup.sh" ]; then
+            # Make sure script is executable
+            chmod +x "$SCRIPT_DIR/scripts/cleanup.sh" 2>/dev/null || true
+            # Use emergency cleanup to ensure everything is removed
+            "$SCRIPT_DIR/scripts/cleanup.sh" emergency
+        else
+            log_error "Cleanup script not found"
+            exit 1
         fi
-        retries=$((retries - 1))
-        sleep 2
-    done
-    
-    if [ $retries -eq 0 ]; then
-        log_warn "Mem0 server may not be ready yet - check with: docker-compose logs mem0-server"
-    else
-        log_success "All memory services are running"
     fi
 }
 
-install_ollama_model() {
-    log_info "🤖 Installing Ollama embedding model..."
-    
-    # Try to pull the embedding model
-    if docker exec claude-ollama ollama pull mxbai-embed-large; then
-        log_success "Embedding model installed"
-    else
-        log_warn "Failed to install embedding model - it will be downloaded on first use"
+do_uninstall() {
+    log_warn "This will completely uninstall Claude Implementation Partner!"
+    read -p "Are you sure? (yes/no): " -r
+    if [[ $REPLY =~ ^[Yy]es$ ]]; then
+        if [ -f "$SCRIPT_DIR/scripts/cleanup.sh" ]; then
+            "$SCRIPT_DIR/scripts/cleanup.sh" uninstall
+        else
+            log_error "Cleanup script not found"
+            exit 1
+        fi
     fi
 }
 
-test_installation() {
-    log_info "🧪 Testing installation..."
-    
-    # Test memory service
-    if curl -s http://localhost:8765/health | grep -q "healthy"; then
-        log_success "✓ Memory service is healthy"
-    else
-        log_warn "✗ Memory service test failed"
-    fi
-    
-    # Test Qdrant
-    if curl -s http://localhost:6333/health > /dev/null 2>&1; then
-        log_success "✓ Qdrant is running"
-    else
-        log_warn "✗ Qdrant test failed"
-    fi
-    
-    # Test Ollama
-    if curl -s http://localhost:11434/api/version > /dev/null 2>&1; then
-        log_success "✓ Ollama is running"
-    else
-        log_warn "✗ Ollama test failed"
-    fi
-}
-
-show_summary() {
-    echo
-    log_success "🎉 Installation completed!"
-    echo
-    echo "📋 What's Running:"
-    echo "   • Mem0 MCP Server: http://localhost:8765"
-    echo "   • Qdrant Vector DB: http://localhost:6333"
-    echo "   • Ollama Embeddings: http://localhost:11434"
-    echo
-    echo "🚀 Quick Commands:"
-    echo "   • Check status: docker-compose -f infrastructure/docker/docker-compose.yml ps"
-    echo "   • View logs: docker-compose -f infrastructure/docker/docker-compose.yml logs"
-    echo "   • Stop services: docker-compose -f infrastructure/docker/docker-compose.yml down"
-    echo
-    echo "🔧 Configuration:"
-    echo "   • Claude config: ~/.claude/"
-    echo "   • Environment: .env"
-    echo "   • API keys: Edit .env file for full functionality"
-    echo
-    echo "📚 Usage:"
-    echo "   1. Start Claude Code"
-    echo "   2. Try: /impl:brainstorm 'your implementation question'"
-    echo "   3. Use: /memory:save-pattern to save useful patterns"
-    echo
-    echo "💡 Next Steps:"
-    echo "   • Configure API keys in .env file"
-    echo "   • Test with: claude"
-    echo "   • Read docs in docs/ folder"
-    echo
-}
-
+# Main
 main() {
-    show_header
-    check_requirements
-    setup_environment
-    setup_claude_config
-    start_memory_services
-    install_ollama_model
-    test_installation
-    show_summary
+    case "${1:-install}" in
+        install)
+            do_install
+            ;;
+        start)
+            do_start
+            ;;
+        stop)
+            do_stop
+            ;;
+        status)
+            do_status
+            ;;
+        clean)
+            do_clean
+            ;;
+        uninstall)
+            do_uninstall
+            ;;
+        help|--help|-h)
+            show_help
+            ;;
+        *)
+            log_error "Unknown command: $1"
+            show_help
+            exit 1
+            ;;
+    esac
 }
 
-# Run main installation
 main "$@"
